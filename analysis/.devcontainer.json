@@ -1,0 +1,10 @@
+{
+    "image": "docker.io/julia:1.9",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "julialang.language-julia"
+            ]
+        }
+    }
+}
