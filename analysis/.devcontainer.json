@@ -3,8 +3,12 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                "julialang.language-julia"
-            ]
+                "julialang.language-julia",
+                "streetsidesoftware.code-spell-checker"
+            ],
+            "settings": {
+                "editor.formatOnSave": true
+            }
         }
     }
 }
