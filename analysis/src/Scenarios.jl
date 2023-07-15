@@ -1,6 +1,6 @@
 module Scenarios
 import YAML
-export FlowOptScenario, Scenario, load_scenario
+export FlowOptScenario, PerfOptScenario, Scenario, load_scenario
 
 struct BaseScenario
     L::Int  # number of user locations
@@ -46,5 +46,10 @@ end
 struct FlowOptScenario
     base::BaseScenario
     c::Vector{Int}  # server allocation vector
+end
+
+struct PerfOptScenario
+    base::BaseScenario
+    W::Float64  # budget
 end
 end

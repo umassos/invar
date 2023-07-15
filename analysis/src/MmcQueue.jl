@@ -1,5 +1,5 @@
 module MmcQueue
-export erlang_c
+export erlang_c, erlang_c_ub
 
 function erlang_c(c, r)
     c = big(c)
