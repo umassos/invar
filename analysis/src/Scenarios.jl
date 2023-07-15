@@ -16,7 +16,7 @@ struct Scenario
     base::BaseScenario
     T_cloud::Float64  # mean response time under the cloud deployment
     ϵ::Float64  # target improvement over T_cloud
-    C_cloud::Float64  # overall server cost under the cloud deployment
+    C_cloud::Float64  # total server cost under the cloud deployment
     α::Float64  # budget ratio
 end
 
@@ -38,7 +38,7 @@ function load_scenario(filename::AbstractString)::Scenario
         base,
         values["mean_response_time_cloud"],
         values["target_improvement"],
-        values["overall_server_cost_cloud"],
+        values["total_server_cost_cloud"],
         values["budget_ratio"],
     )
 end
