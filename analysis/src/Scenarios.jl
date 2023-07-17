@@ -1,6 +1,6 @@
 module Scenarios
 import YAML
-export FlowOptScenario, PerfOptScenario, Scenario, load_scenario
+export BaseScenario, FlowOptScenario, PerfOptScenario, Scenario, load_scenario
 
 struct BaseScenario
     L::Int  # number of user locations
@@ -14,10 +14,8 @@ end
 
 struct Scenario
     base::BaseScenario
-    T_cloud::Float64  # mean response time under the cloud deployment
-    ϵ::Float64  # target improvement over T_cloud
-    W_cloud::Float64  # total server cost under the cloud deployment
-    α::Float64  # budget ratio
+    performance_target::Float64
+    budget::Float64
 end
 
 function load_scenario(filename::AbstractString)::Scenario
@@ -36,10 +34,8 @@ function load_scenario(filename::AbstractString)::Scenario
 
     Scenario(
         base,
-        values["mean_response_time_cloud"],
-        values["target_improvement"],
-        values["total_server_cost_cloud"],
-        values["budget_ratio"],
+        values["performance_target"],
+        values["budget"],
     )
 end
 

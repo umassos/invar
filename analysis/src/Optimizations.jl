@@ -58,6 +58,7 @@ function flow_opt(scenario::FlowOptScenario)
     end)
 
     optimize!(model)
+    model, value.(p)
 end
 
 function perf_opt(scenario::PerfOptScenario)
@@ -92,7 +93,7 @@ function perf_opt(scenario::PerfOptScenario)
     @NLexpression(
         model,
         Tᴰ[j=1:K],
-        erlang_c_ub(c[j] + 1e-9, r[j] + 1e-9) / (c[j] * μ[j] - λ[j]) + 1 / μ[j]
+        erlang_c_ub(c[j] + 1e-6, r[j] + 1e-6) / (c[j] * μ[j] - λ[j]) + 1 / μ[j]
     )
 
     @NLobjective(
@@ -113,5 +114,55 @@ function perf_opt(scenario::PerfOptScenario)
     @NLconstraint(model, [j = 1:K], ρ[j] <= 0.99)
 
     optimize!(model)
+    model, value.(c), value.(λ)
+end
+
+function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
+    if right - left <= ϵ
+        right
+    else
+        mid = (left + right) / 2
+        scenario = PerfOptScenario(
+            baseScenario,
+            mid
+        )
+        model, _ = perf_opt(scenario)
+        status = termination_status(model)
+        if (status == OPTIMAL || status == LOCALLY_SOLVED) && objective_value(model) <= target
+            right = mid
+        else
+            left = mid
+        end
+        binary_search(baseScenario, target, left, right, ϵ)
+    end
+end
+
+function solve(scenario::Scenario)
+    base = scenario.base
+    x = binary_search(
+        base,
+        scenario.performance_target,
+        0,
+        scenario.budget,
+        0.1
+    )
+
+    perfOptscenario = PerfOptScenario(
+        base,
+        x
+    )
+    model, c_value = perf_opt(perfOptscenario)
+    status = termination_status(model)
+    @assert status == OPTIMAL || status == LOCALLY_SOLVED
+
+    c_value_rounded = round.(Int, c_value)
+    flowOptScenario = FlowOptScenario(
+        base,
+        c_value_rounded
+    )
+    model, p_value = flow_opt(flowOptScenario)
+    status = termination_status(model)
+    @assert status == OPTIMAL || status == LOCALLY_SOLVED
+    objective_value(model), c_value_rounded, p_value
 end
 end
