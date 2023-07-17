@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "simulation"
+version = "0.1.0"
+description = ""
+authors = ["Bin Wang <binwang@umass.edu>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+simpy = "^4.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
