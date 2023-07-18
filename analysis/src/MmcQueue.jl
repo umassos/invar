@@ -19,4 +19,10 @@ function erlang_c_ub(c, r)
     γ = (c - r) / sqrt(c)
     (ρ + γ * (Φ(α) / ϕ(α) + 2 / (3 * sqrt(c))))^-1
 end
+
+function mean_waiting_time(c, λ, μ)
+    r = λ / μ
+    ρ = r / c
+    1 / λ * erlang_c(c, r) * ρ / (1 - ρ)
+end
 end
