@@ -2,7 +2,7 @@ module Optimizations
 using ..MmcQueue
 using ..Scenarios
 using JuMP, Ipopt
-export flow_opt, perf_opt
+export flow_opt, perf_opt, solve
 
 function flow_opt(scenario::FlowOptScenario)
     model = Model(Ipopt.Optimizer)
@@ -43,6 +43,24 @@ function flow_opt(scenario::FlowOptScenario)
         1 / μ[j] + (r[j]^c[j] / (ft[c[j]] * c[j] * μ[j] * (1 - ρ[j])^2)) * P₀[j]
     )
 
+    # @NLexpression(
+    # 	model,
+    # 	t[j=1:K],
+    # 	(r[j]^c[j]) / (ft[c[j]] * (1 - r[j] / c[j]))
+    # )
+
+    # @NLexpression(
+    # 	model,
+    # 	erlang_c[j=1:K],
+    # 	t[j] / (t[j] + sum(r[j]^n / ft[n] for n in 0:c[j]-1))
+    # )
+
+    # @NLexpression(
+    # 	model,
+    # 	Tᴰ[j=1:K],
+    # 	1/λ[j] * erlang_c[j] * ρ[j] / (1 - ρ[j]) + 1 / μ[j]
+    # )
+
     @NLobjective(
         model,
         Min,
@@ -61,17 +79,55 @@ function flow_opt(scenario::FlowOptScenario)
     model, value.(p)
 end
 
+# Heuristics for calculating a starting value for c and p. I was hoping that this would improve the time for solving the
+# optimization. However, currently this is not used.
+function calculate_starting_values(scenario::PerfOptScenario)
+    ρ = sum(scenario.base.γ) / scenario.W
+    residual_arrival_rates = copy(scenario.base.γ)
+    Tᴺ_sorted = map(
+        r -> sort!(collect(zip(1:scenario.base.K, r)), by=x -> x[2]),
+        eachrow(scenario.base.Tᴺ)
+    )
+    c_value = zeros(scenario.base.K)
+    p_value = zeros(scenario.base.L, scenario.base.K)
+    while true
+        (residual, user_loc_index) = findmax(residual_arrival_rates)
+        if residual == 0
+            break
+        end
+        servers_required = residual / ρ
+        for (dc_index, _) in Tᴺ_sorted[user_loc_index]
+            servers_available = scenario.base.C[dc_index] - c_value[dc_index]
+            if servers_available > 0
+                servers_allocated = min(servers_required, servers_available)
+                c_value[dc_index] += servers_allocated
+                requests_served = servers_allocated * ρ
+                residual_arrival_rates[user_loc_index] -= servers_allocated * ρ
+                p_value[user_loc_index, dc_index] += requests_served
+                break
+            end
+        end
+    end
+    p_value = p_value ./ scenario.base.γ
+    c_value, p_value
+end
+
 function perf_opt(scenario::PerfOptScenario)
     model = Model(Ipopt.Optimizer)
+    set_optimizer_attribute(model, "max_iter", 5000)
+
     @expression(model, L, scenario.base.L)
     @expression(model, K, scenario.base.K)
+    @expression(model, C, scenario.base.C)
 
-    @variable(model, 0 <= c[j=1:K])
+    # c_starting_value, p_starting_value = calculate_starting_values(scenario)
+    # @variable(model, 0 <= c[j=1:K] <= C[j], start=c_starting_value[j])
+    # @variable(model, 0 <= p[i=1:L, j=1:K] <= 1, start=p_starting_value[i, j])
+    @variable(model, 0 <= c[j=1:K] <= C[j])
     @variable(model, 0 <= p[i=1:L, j=1:K] <= 1)
 
     @expressions(model, begin
         γ, scenario.base.γ
-        C, scenario.base.C
         μ, scenario.base.μ
         w, scenario.base.w
         Tᴺ, scenario.base.Tᴺ
@@ -79,8 +135,6 @@ function perf_opt(scenario::PerfOptScenario)
         λ[j=1:K], sum(γ[i] * p[i, j] for i in 1:L)
         r[j=1:K], λ[j] / μ[j]
     end)
-
-    @NLexpression(model, ρ[j=1:K], r[j] / c[j])
 
     JuMP.register(
         model,
@@ -93,28 +147,31 @@ function perf_opt(scenario::PerfOptScenario)
     @NLexpression(
         model,
         Tᴰ[j=1:K],
-        erlang_c_ub(c[j] + 1e-6, r[j] + 1e-6) / (c[j] * μ[j] - λ[j]) + 1 / μ[j]
+        erlang_c_ub(c[j] + 1e-6, r[j] + 1e-6) / (c[j] * μ[j] - λ[j] + 1e-6) + 1 / μ[j]
     )
 
-    @NLobjective(
+    @NLexpression(
         model,
-        Min,
+        T,
         sum(
             γ[i] * p[i, j] * (Tᴺ[i, j] + Tᴰ[j])
             for i in 1:L, j in 1:K
         ) / sum(γ[i] for i in 1:L)
     )
 
+    @NLobjective(
+        model,
+        Min,
+        T + 0.01 * (sum(c[j] * w[j] for j in 1:K) - W)^2
+    )
+
     @constraints(model, begin
-        [j = 1:K], c[j] <= C[j]
+        [j = 1:K], λ[j] <= 0.99 * c[j] * μ[j]
         [i = 1:L], sum(p[i, j] for j in 1:K) == 1
-        sum(c[j] * w[j] for j in 1:K) <= W
     end)
 
-    @NLconstraint(model, [j = 1:K], ρ[j] <= 0.99)
-
     optimize!(model)
-    model, value.(c), value.(λ)
+    model, value(T), value.(c), value.(λ)
 end
 
 function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
@@ -126,9 +183,11 @@ function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
             baseScenario,
             mid
         )
-        model, _ = perf_opt(scenario)
+        model, T, c, λ = perf_opt(scenario)
         status = termination_status(model)
-        if (status == OPTIMAL || status == LOCALLY_SOLVED) && objective_value(model) <= target
+        @show left, mid, right, T
+        if (status == OPTIMAL || status == LOCALLY_SOLVED) && T <= target
+            @show T
             right = mid
         else
             left = mid
@@ -151,18 +210,35 @@ function solve(scenario::Scenario)
         base,
         x
     )
-    model, c_value = perf_opt(perfOptscenario)
+    model, T, c, λ = perf_opt(perfOptscenario)
+    @show c, λ
     status = termination_status(model)
     @assert status == OPTIMAL || status == LOCALLY_SOLVED
 
-    c_value_rounded = round.(Int, c_value)
-    flowOptScenario = FlowOptScenario(
-        base,
-        c_value_rounded
+    my_round(x) = x >= floor(x) + 0.1 ? Int(ceil(x)) : Int(floor(x))
+    c_rounded = my_round.(c)
+    # remove empty data centers in the scenario
+    # because their P₀ cannot be computed in flow optimization
+    non_empty_indices = findall(c_rounded .> 0)
+    reducedBase = BaseScenario(
+        base.L,
+        base.γ,
+        length(non_empty_indices),
+        base.C[non_empty_indices],
+        base.μ[non_empty_indices],
+        base.w[non_empty_indices],
+        base.Tᴺ[:, non_empty_indices]
     )
-    model, p_value = flow_opt(flowOptScenario)
+
+    flowOptScenario = FlowOptScenario(
+        reducedBase,
+        c_rounded[non_empty_indices]
+    )
+    model, p_value_reduced = flow_opt(flowOptScenario)
+    p_value = zeros(base.L, base.K)
+    p_value[:, non_empty_indices] = p_value_reduced
     status = termination_status(model)
     @assert status == OPTIMAL || status == LOCALLY_SOLVED
-    objective_value(model), c_value_rounded, p_value
+    objective_value(model), c_rounded, p_value
 end
 end

@@ -1,8 +1,7 @@
 module MmcQueue
-export erlang_c, erlang_c_ub
+export erlang_c, erlang_c_ub, mean_waiting_time
 
 function erlang_c(c, r)
-    c = big(c)
     c = big(c)
     t = (r^c) / (factorial(c) * (1 - r / c))
     t / (t + sum(r^n / factorial(n) for n in 0:c-1))
