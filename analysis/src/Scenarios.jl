@@ -46,6 +46,6 @@ end
 
 struct PerfOptScenario
     base::BaseScenario
-    W::Float64  # budget
+    budget::Float64  # budget
 end
 end
