@@ -7,23 +7,25 @@ export flow_opt, perf_opt, solve
 function flow_opt(scenario::FlowOptScenario)
     model = Model(Ipopt.Optimizer)
 
+    # remove empty data centers in the scenario because their P₀ cannot be computed
+    non_empty_indices = findall(scenario.c .> 0)
     @expression(model, L, scenario.base.L)
-    @expression(model, K, scenario.base.K)
+    @expression(model, K, length(non_empty_indices))
 
     @variable(model, 0 <= p[1:L, 1:K] <= 1)
 
     @expressions(model, begin
         γ, scenario.base.γ
-        Tᴺ, scenario.base.Tᴺ
-        μ, scenario.base.μ
-        c, scenario.c
+        Tᴺ, scenario.base.Tᴺ[:, non_empty_indices]
+        μ, scenario.base.μ[non_empty_indices]
+        c, scenario.c[non_empty_indices]
         λ[j=1:K], sum(γ[i] * p[i, j] for i in 1:L)
         r[j=1:K], λ[j] / μ[j]
         ρ[j=1:K], r[j] / c[j]
     end)
 
     # precompute a factorial table since factorial will be computed multiple times
-    max_server_count = maximum(scenario.c)
+    max_server_count = maximum(c)
     @show max_server_count
     @expression(model, ft[i=0:max_server_count], factorial(big(i)))
 
@@ -76,7 +78,9 @@ function flow_opt(scenario::FlowOptScenario)
     end)
 
     optimize!(model)
-    model, value.(p)
+    p_value = zeros(scenario.base.L, scenario.base.K)
+    p_value[:, non_empty_indices] = value.(p)
+    model, p_value
 end
 
 # Heuristics for calculating a starting value for c and p.
@@ -164,7 +168,7 @@ function perf_opt(scenario::PerfOptScenario)
     @NLobjective(
         model,
         Min,
-        T + 0.01 * (sum(c[j] * w[j] for j in 1:K) - W)^2
+        T + 0.1 * (sum(c[j] * w[j] for j in 1:K) - W)^2
     )
 
     @constraints(model, begin
@@ -200,7 +204,7 @@ function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
     end
 end
 
-function solve(scenario::Scenario)
+function solve(scenario::Scenario, exact::Bool=false)
     base = scenario.base
     x = binary_search(
         base,
@@ -220,52 +224,46 @@ function solve(scenario::Scenario)
     end
     @show c, λ
 
-    # remove empty data centers in the scenario
-    # because their P₀ cannot be computed in flow optimization
-    non_empty_indices = findall(c .> 0)
-    reducedBase = BaseScenario(
-        base.L,
-        base.γ,
-        length(non_empty_indices),
-        base.C[non_empty_indices],
-        base.μ[non_empty_indices],
-        base.w[non_empty_indices],
-        base.Tᴺ[:, non_empty_indices]
-    )
-
-    c_ne = c[non_empty_indices]
-    c_ne_max = scenario.base.C[non_empty_indices]
-    c_ne_base = map(x -> x < 1 ? 1 : Int(floor(x)), c[non_empty_indices])
-    cancidates = [c_ne_base]
-    diff_with_indices = collect(zip(c_ne - c_ne_base, 1:length(non_empty_indices)))
+    c_lowerbound = map(x -> x < 0 ? 0 : Int(floor(x)), c)
+    candidates = [c_lowerbound]
+    diff_with_indices = collect(zip(c - c_lowerbound, 1:scenario.base.K))
     sort!(diff_with_indices, rev=true)
     for (diff, index) in diff_with_indices
         if diff <= 0
             break
         end
-        candidate = copy(last(cancidates))
-        candidate[index] = min(candidate[index] + 1, c_ne_max[index])
-        push!(cancidates, candidate)
+        candidate = copy(last(candidates))
+        if candidate[index] + 1 <= scenario.base.C[index]
+            candidate[index] += 1
+            push!(candidates, candidate)
+        end
     end
-    @show cancidates
+    @show candidates
 
-    for (i, c_ne_candidate) in enumerate(cancidates)
+    if exact
+        i = findfirst(c -> sum(c) >= scenario.budget, candidates)
+        solution = candidates[i]
         flowOptScenario = FlowOptScenario(
-            reducedBase,
-            c_ne_candidate
+            scenario.base,
+            solution
         )
-        model, p_value_reduced = flow_opt(flowOptScenario)
+        model, p = flow_opt(flowOptScenario)
+        return objective_value(model), solution, p
+    else
+        for (i, candidate) in enumerate(candidates)
+            flowOptScenario = FlowOptScenario(
+                scenario.base,
+                candidate
+            )
+            model, p = flow_opt(flowOptScenario)
 
-        status = termination_status(model)
-        solved = (
-            status in acceptable_statuses && objective_value(model) <= scenario.performance_target
-        )
-        if solved || i == length(cancidates)
-            c_value = copy(c)
-            c_value[non_empty_indices] = c_ne_candidate
-            p_value = zeros(base.L, base.K)
-            p_value[:, non_empty_indices] = p_value_reduced
-            return objective_value(model), c_value, p_value
+            status = termination_status(model)
+            solved = (
+                status in acceptable_statuses && objective_value(model) <= scenario.performance_target
+            )
+            if solved || i == length(candidates)
+                return objective_value(model), candidate, p
+            end
         end
     end
 end
