@@ -1,11 +1,12 @@
 module Optimizations
 using ..MmcQueue
 using ..Scenarios
-using JuMP, Ipopt
+using Ipopt, JuMP, KNITRO
 export flow_opt, perf_opt, solve
 
 function flow_opt(scenario::FlowOptScenario)
-    model = Model(Ipopt.Optimizer)
+    ipopt = optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0)
+    model = Model(ipopt)
 
     # remove empty data centers in the scenario because their P₀ cannot be computed
     non_empty_indices = findall(scenario.c .> 0)
@@ -119,18 +120,24 @@ function calculate_starting_values(scenario::PerfOptScenario)
 end
 
 function perf_opt(scenario::PerfOptScenario)
-    model = Model(Ipopt.Optimizer)
-    # set_optimizer_attribute(model, "max_iter", 5000)
+    knitro = optimizer_with_attributes(
+        KNITRO.Optimizer,
+        "outlev" => 2,
+        "algorithm" => 2,
+        "ms_enable" => 1
+    )
+    model = Model(knitro)
 
     @expression(model, L, scenario.base.L)
     @expression(model, K, scenario.base.K)
     @expression(model, C, scenario.base.C)
 
-    c_starting_value, p_starting_value = calculate_starting_values(scenario)
-    @variable(model, 0 <= c[j=1:K] <= C[j], start = c_starting_value[j])
-    @variable(model, 0 <= p[i=1:L, j=1:K] <= 1, start = p_starting_value[i, j])
-    # @variable(model, 0 <= c[j=1:K] <= C[j])
-    # @variable(model, 0 <= p[i=1:L, j=1:K] <= 1)
+    # c_starting_value, p_starting_value = calculate_starting_values(scenario)
+    # @show c_starting_value, p_starting_value
+    # @variable(model, 0 <= c[j=1:K] <= C[j], start = c_starting_value[j])
+    # @variable(model, 0 <= p[i=1:L, j=1:K] <= 1, start = p_starting_value[i, j])
+    @variable(model, 0 <= c[j=1:K] <= C[j])
+    @variable(model, 0 <= p[i=1:L, j=1:K] <= 1)
 
     @expressions(model, begin
         γ, scenario.base.γ

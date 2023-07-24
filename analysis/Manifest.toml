@@ -2,7 +2,7 @@
 
 julia_version = "1.9.2"
 manifest_format = "2.0"
-project_hash = "2d29de43001ca5f90b664c5487a3eb0f028260b5"
+project_hash = "410e987ede08748e1585d48b6c9198a94286472d"
 
 [[deps.ASL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -413,6 +413,12 @@ deps = ["LinearAlgebra", "MathOptInterface", "MutableArithmetics", "OrderedColle
 git-tree-sha1 = "b0ded4f36829f7cfd4400b11289faf9b4f0b795a"
 uuid = "4076af6c-e467-56ae-b986-b466b2749572"
 version = "1.12.0"
+
+[[deps.KNITRO]]
+deps = ["Libdl", "MathOptInterface", "SparseArrays"]
+git-tree-sha1 = "f6b5afa744ba4dedc98ac2f4a1496243f5f511b8"
+uuid = "67920dd8-b58e-52a8-8622-53c4cffbe346"
+version = "0.13.2"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
