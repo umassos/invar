@@ -52,12 +52,12 @@ class Request:
 class RequestGenerator:
     def __init__(
         self,
+        env: Environment,
         user_loc_to_iat_gen: dict[UserLocId, RNG],
         dc_to_st_gen: dict[DataCenterId, RNG],
         dc_to_servers: dict[DataCenterId, PriorityResource],
         load_balancer: LoadBalancer,
         latency_matrix: dict[UserLocId, dict[DataCenterId, float]],
-        env: Environment,
     ):
         self.user_loc_to_iat_gen = user_loc_to_iat_gen
         self.dc_to_st_gen = dc_to_st_gen
