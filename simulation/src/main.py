@@ -1,6 +1,7 @@
 import os
 import sys
 
+import numpy as np
 from numpy.random import SeedSequence, default_rng
 from simpy import Environment
 from simpy.resources.resource import PriorityResource
@@ -22,8 +23,7 @@ if __name__ == "__main__":
         print(f"usage: {sys.argv[0]} scenario_file [seed]")
         exit(os.EX_USAGE)
 
-    # scenario = load_simulation_scenario(filename)
-    scenario = SimulationScenario()
+    scenario = load_simulation_scenario(filename)
 
     env = Environment()
 
@@ -39,25 +39,24 @@ if __name__ == "__main__":
         for i in range(scenario.base.data_center_count)
     }
 
-    dc_to_servers: dict[DataCenterId, PriorityResource] = {
-        DataCenterId(i + 1): PriorityResource(env, capacity=scenario.base.max_capacity_vector[i])
-        for i in range(scenario.base.data_center_count)
-    }
+    dc_to_servers = {}
+    for i in range(scenario.base.data_center_count):
+        allocated_capacity = scenario.allocation_vector[i]
+        dc_to_servers[DataCenterId(i + 1)] = (
+            PriorityResource(env, capacity=scenario.allocation_vector[i]) if allocated_capacity > 0 else None
+        )
 
     selectors = []
     selector_seeds = ss.spawn(scenario.base.user_location_count)
-    for (i, row) in enumerate(scenario.forwarding_probability_matrix):
+    for i, row in enumerate(scenario.forwarding_probability_matrix):
         selector = ChoiceRNG(
-            choices=[DataCenterId(i + 1) for i in range(scenario.base.data_center_count)],
+            choices=[DataCenterId(j + 1) for j in range(scenario.base.data_center_count)],
             probabilities=row,
-            generator=default_rng(selector_seeds[i])
+            generator=default_rng(selector_seeds[i]),
         )
         selectors.append(selector)
 
-    user_loc_to_selectors = {
-        UserLocId(i + 1): selectors[i]
-        for i in range(scenario.base.user_location_count)
-    }
+    user_loc_to_selectors = {UserLocId(i + 1): selectors[i] for i in range(scenario.base.user_location_count)}
 
     load_balancer = LoadBalancer(user_loc_to_selectors)
 
@@ -78,4 +77,10 @@ if __name__ == "__main__":
         latency_table,
     )
 
-    env.run(until=10000)
+    env.run(until=600)
+    response_times = [
+        request.response_ts - request.arrival_ts
+        for request in request_generator.generated_requests
+        if request.response_ts is not None and request.arrival_ts > 60
+    ]
+    print(np.mean(response_times))

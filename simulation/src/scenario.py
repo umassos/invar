@@ -12,7 +12,7 @@ class BaseScenario(BaseModel, frozen=True):
     network_latency_matrix: list[list[float]]
 
 
-class SimulationScenario(BaseScenario, frozen=True):
+class SimulationScenario(BaseModel, frozen=True):
     base: BaseScenario
     calculated_performance: float
     allocation_vector: list[StrictInt]

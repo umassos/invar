@@ -38,14 +38,14 @@ class Request:
         self.process = env.process(self.run())
 
     def run(self):
-        yield self.env.timeout(self.latency)
+        yield self.env.timeout(self.latency / 2)
         self.enqueue_ts = self.env.now
         with self.servers.request() as req:
             yield req
             self.start_ts = self.env.now
             yield self.env.timeout(self.service_time)
             self.completion_ts = self.env.now
-        yield self.env.timeout(self.latency)
+        yield self.env.timeout(self.latency / 2)
         self.response_ts = self.env.now
 
 
@@ -67,6 +67,8 @@ class RequestGenerator:
         self.env = env
         self.request_count = itertools.count()
         self.generated_requests = []
+
+        self.process = env.process(self.run())
 
     def run(self):
         user_loc_to_next_arrival_ts = {
