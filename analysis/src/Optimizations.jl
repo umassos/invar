@@ -4,9 +4,16 @@ using ..Scenarios
 using Ipopt, JuMP, KNITRO
 export flow_opt, perf_opt, solve
 
-function flow_opt(scenario::FlowOptScenario)
-    ipopt = optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0)
-    model = Model(ipopt)
+ipopt = optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 3)
+knitro = optimizer_with_attributes(
+    KNITRO.Optimizer,
+    "outlev" => 2,
+    "algorithm" => 1,
+    "ms_enable" => 1
+)
+
+function flow_opt(scenario::FlowOptScenario; optimizer=ipopt)
+    model = Model(optimizer)
 
     # remove empty data centers in the scenario because their P₀ cannot be computed
     non_empty_indices = findall(scenario.c .> 0)
@@ -119,14 +126,8 @@ function calculate_starting_values(scenario::PerfOptScenario)
     c_value, p_value
 end
 
-function perf_opt(scenario::PerfOptScenario)
-    knitro = optimizer_with_attributes(
-        KNITRO.Optimizer,
-        "outlev" => 2,
-        "algorithm" => 2,
-        "ms_enable" => 1
-    )
-    model = Model(knitro)
+function perf_opt(scenario::PerfOptScenario; optimizer=knitro)
+    model = Model(optimizer)
 
     @expression(model, L, scenario.base.L)
     @expression(model, K, scenario.base.K)
@@ -160,7 +161,7 @@ function perf_opt(scenario::PerfOptScenario)
     @NLexpression(
         model,
         Tᴰ[j=1:K],
-        erlang_c_ub(c[j] + 1e-5, r[j] + 1e-5) / (c[j] * μ[j] - λ[j] + 1e-5) + 1 / μ[j]
+        erlang_c_ub(c[j] + 1e-6, r[j] + 1e-6) / (c[j] * μ[j] - λ[j] + 1e-4) + 1 / μ[j]
     )
 
     @NLexpression(
@@ -189,7 +190,7 @@ end
 
 acceptable_statuses = [OPTIMAL, ALMOST_OPTIMAL, LOCALLY_SOLVED, ALMOST_LOCALLY_SOLVED]
 
-function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
+function binary_search(baseScenario::BaseScenario, target, left, right, ϵ, perfOptimizer)
     if right - left <= ϵ
         right
     else
@@ -198,7 +199,7 @@ function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
             baseScenario,
             mid
         )
-        model, T, c, λ = perf_opt(scenario)
+        model, T = perf_opt(scenario, optimizer=perfOptimizer)
         status = termination_status(model)
         @show left, mid, right, T, status
         if status in acceptable_statuses && T <= target
@@ -207,25 +208,26 @@ function binary_search(baseScenario::BaseScenario, target, left, right, ϵ)
         else
             left = mid
         end
-        binary_search(baseScenario, target, left, right, ϵ)
+        binary_search(baseScenario, target, left, right, ϵ, perfOptimizer)
     end
 end
 
-function solve(scenario::Scenario, exact::Bool=false)
+function solve(scenario::Scenario; exact::Bool=false, perfOptimizer=knitro, flowOptimizer=ipopt)
     base = scenario.base
     x = binary_search(
         base,
         scenario.performance_target,
         0,
         scenario.budget,
-        0.1
+        0.1,
+        perfOptimizer
     )
 
     perfOptscenario = PerfOptScenario(
         base,
         x
     )
-    model, T, c, λ = perf_opt(perfOptscenario)
+    model, T, c, λ = perf_opt(perfOptscenario, optimizer=perfOptimizer)
     if T > scenario.performance_target
         println(stderr, "could not find a solution with in budget")
     end
@@ -254,7 +256,7 @@ function solve(scenario::Scenario, exact::Bool=false)
             scenario.base,
             solution
         )
-        model, p = flow_opt(flowOptScenario)
+        model, p = flow_opt(flowOptScenario, optimizer=flowOptimizer)
         return objective_value(model), solution, p
     else
         for (i, candidate) in enumerate(candidates)
@@ -262,7 +264,7 @@ function solve(scenario::Scenario, exact::Bool=false)
                 scenario.base,
                 candidate
             )
-            model, p = flow_opt(flowOptScenario)
+            model, p = flow_opt(flowOptScenario, optimizer=flowOptimizer)
 
             status = termination_status(model)
             solved = (
