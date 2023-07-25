@@ -1,9 +1,0 @@
-base:
-  user_location_count: 8
-  arrival_rate_vector: [15, 15, 15, 15, 15, 15, 15, 15]
-  data_center_count: 5
-  max_capacity_vector: [20, 10, 10, 10, 10]
-  service_rate_vector: [10, 10, 10, 10, 10]
-  server_cost_vector: [1, 1, 1, 1, 1]
-  network_latency_matrix:
-    - [0.03  0.001      0.0417253  0.059      0.0417253]
